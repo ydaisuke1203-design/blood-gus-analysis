@@ -1,6 +1,7 @@
 (function () {
   "use strict";
 
+  // ---------- utils ----------
   function round(n, digits) {
     digits = digits ?? 1;
     const f = 10 ** digits;
@@ -27,6 +28,7 @@
     return "-".repeat(40);
   }
 
+  // ---------- Respiration ----------
   function respirationAnalysis(pao2, paco2, fio2) {
     const out = [];
 
@@ -53,20 +55,132 @@
     return out;
   }
 
-  function anionGap(hco3, na, k, cl, p, alb) {
+  // ---------- Boston approach ----------
+  function bostonApproach(ph, paco2, hco3, na, k, cl, p, alb) {
     const out = [];
 
+    out.push("");
+    out.push("=".repeat(40));
+    out.push("【Boston_approach】");
+
+    // ---- acid_base_balance ----
+    let predictedCo2 = null;            // number | null
+    let predictedHco3Acute = null;      // number | null
+    let predictedHco3Chronic = null;    // number | null
+
+    // pH判定
+    if (7.35 <= ph && ph <= 7.45) out.push("pH正常");
+    else if (ph < 7.35) out.push("アシデミア");
+    else out.push("アルカレミア");
+
+    out.push(hr());
+
+    // 酸塩基が完全に正常か
+    if (22 <= hco3 && hco3 <= 26 && 35 <= paco2 && paco2 <= 45) {
+      out.push("酸塩基平衡は正常");
+    } else {
+      out.push("酸塩基平衡異常あり");
+      out.push("<1次変化>");
+
+      // Pythonの分岐を踏襲（primary候補を列挙して予測値を計算）
+      if (hco3 < 24 && paco2 < 40) {
+        out.push("代謝性アシドーシス or 呼吸性アルカローシス");
+        // predicted_hco3（急性/慢性）: CO2変化から算出
+        predictedHco3Acute = 24 + 0.1 * (paco2 - 40);
+        predictedHco3Chronic = 24 + 0.4 * (paco2 - 40);
+        // predicted_co2: HCO3変化から算出
+        predictedCo2 = 40 + 1.4 * (hco3 - 24);
+      } else if (24 < hco3 && 40 < paco2) {
+        out.push("代謝性アルカローシス or 呼吸性アシドーシス");
+        predictedHco3Acute = 24 + 0.2 * (paco2 - 40);
+        predictedHco3Chronic = 24 + 0.6 * (paco2 - 40);
+        predictedCo2 = 40 + 0.7 * (hco3 - 24);
+      } else if (hco3 < 24 && 40 < paco2) {
+        out.push("混合性アシドーシス");
+      } else {
+        out.push("混合性アルカローシス");
+      }
+
+      out.push(hr());
+
+      // 代謝性primary仮定（predictedCo2が計算できたときだけ評価）
+      out.push("> 1次変化が代謝性であると仮定すると、");
+      if (predictedCo2 !== null) {
+        if (hco3 < 24) {
+          if (predictedCo2 <= paco2) out.push("+ 呼吸性代償 ± 呼吸性アシドーシス");
+          else out.push("+ 呼吸性アルカローシス");
+        } else if (24 < hco3) {
+          if (predictedCo2 < paco2) out.push("+ 呼吸性アシドーシス");
+          else out.push("+ 呼吸性代償 ± 呼吸性アルカローシス");
+        }
+      } else {
+        out.push("（代償評価：予測値が計算できないため省略）");
+      }
+
+      out.push("");
+
+      // 呼吸性primary仮定（predictedHco3が計算できたときだけ評価）
+      out.push("> 1次変化が呼吸性であると仮定すると、");
+      if (predictedHco3Acute !== null && predictedHco3Chronic !== null) {
+        if (40 < paco2) {
+          if (predictedHco3Chronic < hco3) {
+            out.push("+ 代謝性アルカローシス");
+          } else if (predictedHco3Acute <= hco3 && hco3 <= predictedHco3Chronic) {
+            out.push("+ 急性期かつ代謝性アルカローシス / 亜急性期 / 慢性期かつ代謝性アシドーシス");
+          } else if (hco3 < predictedHco3Acute) {
+            out.push("+ 代謝性アシドーシス / 超急性期(不完全代謝性代償)");
+          }
+        } else if (paco2 < 40) {
+          // Python原文の条件が少し不自然ですが「雰囲気踏襲」で出します
+          if (hco3 < predictedHco3Chronic) {
+            out.push("+ 代謝性アシドーシス");
+          } else if (predictedHco3Chronic <= hco3 && hco3 <= predictedHco3Acute) {
+            out.push("+ 急性期かつ代謝性アシドーシス / 亜急性期 / 慢性期かつ代謝性アルカローシス");
+          } else if (predictedHco3Acute < hco3) {
+            out.push("+ 代謝性アルカローシス");
+          }
+        }
+      } else {
+        out.push("（代償評価：予測値が計算できないため省略）");
+      }
+    }
+
+    out.push(hr());
+
+    // ---- anion_gap ----
     const simpleAg = na - cl - hco3;
-    const correctedAg = (na + k - cl - hco3) - (2 * alb + 0.5 + p);
+    const correctedAg = (na + k - cl - hco3) - (2 * alb + 0.5 + p); // 指定式
 
-    out.push(`単純Anion-Gap : ${round(simpleAg, 1)}`);
-    out.push(`修正Anion-Gap : ${round(correctedAg, 1)}`);
+    // Pythonの条件を踏襲
+    if (12 < simpleAg || 0 < correctedAg) {
+      out.push(`単純Anion-Gap : ${round(simpleAg, 1)}`);
+      out.push(`修正Anion-Gap : ${round(correctedAg, 1)}`);
+      out.push("Anion-gap開大");
 
-    if (12 < simpleAg || 0 < correctedAg) out.push("Anion-gap開大");
+      const denom = (24 - hco3);
+      if (denom !== 0) {
+        const deltaSimple = (simpleAg - 12) / denom;
+        const deltaCorrected = correctedAg / denom;
+
+        // Pythonのメッセージ踏襲（simple or corrected のどちらかで判定）
+        if (deltaSimple < 1 || deltaCorrected < 1) {
+          out.push("+ Anion-gap非開大性代謝性アシドーシス");
+        } else if ((1 <= deltaSimple && deltaSimple < 2) || (1 <= deltaCorrected && deltaCorrected < 2)) {
+          out.push("Anion-gap非開大性病態の合併なし");
+        } else {
+          out.push("+ Anion-gap非開大性代謝性アルカローシス");
+        }
+      }
+    } else {
+      out.push(`単純Anion-Gap : ${round(simpleAg, 1)}`);
+      out.push(`修正Anion-Gap : ${round(correctedAg, 1)}`);
+      out.push("Anion-gap開大なし");
+    }
 
     return out;
   }
 
+  // ---------- Stewart approach (with iCa 기준) ----------
   function stewartApproach(ph, hco3, lac, na, k, cl, ca, mg, p, alb) {
     const out = [];
     out.push("【Stewart approach】");
@@ -95,7 +209,7 @@
     if (mg < 1.9) out.push("低Mg血症によるアルカローシス");
     else if (2.5 < mg) out.push("高Mg血症によるアシドーシス");
 
-    // iCa (mmol/L) の基準で判定（目安：1.12-1.32）
+    // iCa (mmol/L) 기준（目安：1.12–1.32）
     if (ca < 1.12) out.push("低iCa血症によるアルカローシス");
     else if (1.32 < ca) out.push("高iCa血症によるアシドーシス");
 
@@ -115,31 +229,35 @@
     return out;
   }
 
+  // ---------- handlers ----------
   function runAnalysis() {
     const fio2 = getNumber("fio2");
     if (!(0 < fio2 && fio2 <= 1)) throw new Error("FiO2は 0 < FiO2 <= 1 で入力してください");
 
+    // respiration
     const pao2 = getNumber("pao2");
     const paco2 = getNumber("paco2");
+
+    // common / boston / stewart
+    const ph = getNumber("ph");
     const hco3 = getNumber("hco3");
+    const lac = getNumber("lac");
     const na = getNumber("na");
     const k = getNumber("k");
     const cl = getNumber("cl");
+    const ca = getNumber("ca");
+    const mg = getNumber("mg");
     const p = getNumber("p");
     const alb = getNumber("alb");
 
-    const ph = getNumber("ph");
-    const lac = getNumber("lac");
-    const ca = getNumber("ca");
-    const mg = getNumber("mg");
-
+    // out1: respiration + boston
     const out1Lines = [];
     out1Lines.push("【Respiration analysis】");
     out1Lines.push(...respirationAnalysis(pao2, paco2, fio2));
-    out1Lines.push(hr());
-    out1Lines.push(...anionGap(hco3, na, k, cl, p, alb));
+    out1Lines.push(...bostonApproach(ph, paco2, hco3, na, k, cl, p, alb));
     setText("out1", out1Lines.join("\n"));
 
+    // out2: stewart
     const out2Lines = stewartApproach(ph, hco3, lac, na, k, cl, ca, mg, p, alb);
     setText("out2", out2Lines.join("\n"));
   }
