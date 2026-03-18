@@ -37,49 +37,33 @@
     // ---------- domain logic ----------
 
     function respirationAnalysis(pao2, paco2, fio2) {
+	const out = [];
 
-        const out = [];
+	const pf = pao2 / fio2;
+	if (pf <= 100) out.push(`P/F ${round(pf, 1)}   severe ARDS`);
+	else if (100 < pf && pf <= 200) out.push(`P/F ${round(pf, 1)}   moderate ARDS`);
+	else if (200 < pf && pf <= 300) out.push(`P/F ${round(pf, 1)}   mild ARDS`);
+	else out.push(`P/F ${round(pf, 1)}   酸素化正常`);
 
-        const pf = pao2 / fio2;
+	if (pf < 300) {
+		if (paco2 <= 45) out.push("1型呼吸不全");
+		else out.push("2型呼吸不全");
+	}
 
-        // 指定の境界：
+	// 空行（段落）
+	out.push("");
 
-        // <=100 severe, 100< && <=200 moderate, 200< && <=300 mild, 300< normal
+	const aado2 = ((760 - 47) * fio2 - paco2 / 0.8) - pao2;
+	out.push(">大気圧=760mmHg/飽和水蒸気圧=47mmHg/呼吸商=0.8と仮定すると");
+	out.push(`A-aDO2 = ${round(aado2, 1)}`);
 
-        if (pf <= 100) out.push(`P/F ${round(pf, 1)}   severe ARDS`);
+	if (20 <= aado2) {
+		out.push("A-aDO2開大");
+		out.push("右左シャント or 換気血流比不均等 or 拡散障害を鑑別");
+	}
 
-        else if (100 < pf && pf <= 200) out.push(`P/F ${round(pf, 1)}   moderate ARDS`);
-
-        else if (200 < pf && pf <= 300) out.push(`P/F ${round(pf, 1)}   mild ARDS`);
-
-        else out.push(`P/F ${round(pf, 1)}   酸素化正常`);
-
-        if (pf < 300) {
-
-            if (paco2 <= 45) out.push("1型呼吸不全");
-
-            else out.push("2型呼吸不全");
-
-        }
-
-        const aado2 = ((760 - 47) * fio2 - paco2 / 0.8) - pao2;
-
-        out.push(">大気圧=760mmHg/飽和水蒸気圧=47mmHg/呼吸商=0.8と仮定すると");
-
-        out.push(`A-aDO2 = ${round(aado2, 1)}`);
-
-        if (20 <= aado2) {
-
-            out.push("A-aDO2開大");
-
-            out.push("右左シャント or 換気血流比不均等 or 拡散障害を鑑別");
-
-        }
-
-        return out;
-
-    }
-
+	return out;
+}
     function anionGap(hco3, na, k, cl, p, alb) {
 
         const out = [];
@@ -129,14 +113,10 @@
         const alb = getNumber("alb");
 
         const out1 = [
-
-            ...respirationAnalysis(pao2, paco2, fio2),
-
-            "----------------------------------------",
-
-            ...anionGap(hco3, na, k, cl, p, alb),
-
-        ].join("n");
+	    ...respirationAnalysis(pao2, paco2, fio2),
+	    "----------------------------------------",
+	    ...anionGap(hco3, na, k, cl, p, alb),
+        ].join("\n");
 
         setText("out1", out1);
 
